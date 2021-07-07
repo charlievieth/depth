@@ -52,7 +52,7 @@ type Tree struct {
 
 	Importer Importer
 
-	importCache map[string]struct{}
+	importCache stringSet
 }
 
 // Resolve recursively finds all dependencies for the root Pkg name provided,
@@ -72,7 +72,7 @@ func (t *Tree) Resolve(name string) error {
 
 	// Reset the import cache each time to ensure a reused Tree doesn't
 	// reuse the same cache.
-	t.importCache = nil
+	t.importCache.Reset()
 
 	// Allow custom importers, but use build.Default if none is provided.
 	if t.Importer == nil {
@@ -117,13 +117,5 @@ func (t *Tree) isAtMaxDepth(p *Pkg) bool {
 // hasSeenImport returns true if the import name provided has already been seen within the tree.
 // This function only returns false for a name once.
 func (t *Tree) hasSeenImport(name string) bool {
-	if t.importCache == nil {
-		t.importCache = make(map[string]struct{})
-	}
-
-	if _, ok := t.importCache[name]; ok {
-		return true
-	}
-	t.importCache[name] = struct{}{}
-	return false
+	return t.importCache.Add(name) == false
 }

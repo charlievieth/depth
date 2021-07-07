@@ -1,15 +1,16 @@
 package depth
 
 import (
-	"bytes"
 	"go/build"
 	"path"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Pkg represents a Go source package, and its dependencies.
 type Pkg struct {
+	mu     sync.Mutex
 	Name   string `json:"name"`
 	SrcDir string `json:"-"`
 
@@ -22,6 +23,41 @@ type Pkg struct {
 	Deps   []Pkg `json:"deps"`
 
 	Raw *build.Package `json:"-"`
+}
+
+type stringSet struct {
+	mu  sync.Mutex
+	set map[string]struct{}
+}
+
+func (s *stringSet) Reset() {
+	s.mu.Lock()
+	if s.set != nil {
+		for k := range s.set {
+			delete(s.set, k)
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *stringSet) Contains(str string) bool {
+	s.mu.Lock()
+	_, seen := s.set[str]
+	s.mu.Unlock()
+	return seen
+}
+
+func (s *stringSet) Add(str string) (added bool) {
+	s.mu.Lock()
+	if s.set == nil {
+		s.set = make(map[string]struct{})
+	}
+	if _, ok := s.set[str]; !ok {
+		added = true
+		s.set[str] = struct{}{}
+	}
+	s.mu.Unlock()
+	return added
 }
 
 // Resolve recursively finds all dependencies for the Pkg and the packages it depends on.
@@ -62,37 +98,47 @@ func (p *Pkg) Resolve(i Importer) {
 
 	//first we set the regular dependencies, then we add the test dependencies
 	//sharing the same set. This allows us to mark all test-only deps linearly
-	unique := make(map[string]struct{})
-	p.setDeps(i, pkg.Imports, pkg.Dir, unique, false)
+	var unique stringSet
+	p.setDeps(i, pkg.Imports, pkg.Dir, &unique, false)
 	if p.Tree.ResolveTest {
-		p.setDeps(i, append(pkg.TestImports, pkg.XTestImports...), pkg.Dir, unique, true)
+		p.setDeps(i, append(pkg.TestImports, pkg.XTestImports...), pkg.Dir, &unique, true)
 	}
 }
 
 // setDeps takes a slice of import paths and the source directory they are relative to,
 // and creates the Deps of the Pkg. Each dependency is also further resolved prior to being added
 // to the Pkg.
-func (p *Pkg) setDeps(i Importer, imports []string, srcDir string, unique map[string]struct{}, isTest bool) {
+func (p *Pkg) setDeps(i Importer, imports []string, srcDir string, unique *stringSet, isTest bool) {
+	var wg sync.WaitGroup
 	for _, imp := range imports {
 		// Mostly for testing files where cyclic imports are allowed.
 		if imp == p.Name {
 			continue
 		}
-
 		// Skip duplicates.
-		if _, ok := unique[imp]; ok {
+		if !unique.Add(imp) {
 			continue
 		}
-		unique[imp] = struct{}{}
-
-		p.addDep(i, imp, srcDir, isTest)
+		wg.Add(1)
+		go func(imp string) {
+			// TODO: limit number of goroutines (NOTE: this func is recursively called)
+			defer wg.Done()
+			p.addDep(i, imp, srcDir, isTest)
+		}(imp)
 	}
+	wg.Wait()
 
 	sort.Sort(byInternalAndName(p.Deps))
 }
 
+func (p *Pkg) appendDep(dep Pkg) {
+	p.mu.Lock()
+	p.Deps = append(p.Deps, dep)
+	p.mu.Unlock()
+}
+
 // addDep creates a Pkg and it's dependencies from an imported package name.
-func (p *Pkg) addDep(i Importer, name string, srcDir string, isTest bool) {
+func (p *Pkg) addDep(i Importer, name, srcDir string, isTest bool) {
 	dep := Pkg{
 		Name:   name,
 		SrcDir: srcDir,
@@ -101,31 +147,18 @@ func (p *Pkg) addDep(i Importer, name string, srcDir string, isTest bool) {
 		Test:   isTest,
 	}
 	dep.Resolve(i)
+	p.appendDep(dep)
 
-	p.Deps = append(p.Deps, dep)
-}
-
-// isParent goes recursively up the chain of Pkgs to determine if the name provided is ever a
-// parent of the current Pkg.
-func (p *Pkg) isParent(name string) bool {
-	if p.Parent == nil {
-		return false
-	}
-
-	if p.Parent.Name == name {
-		return true
-	}
-
-	return p.Parent.isParent(name)
+	// p.Deps = append(p.Deps, dep)
 }
 
 // depth returns the depth of the Pkg within the Tree.
 func (p *Pkg) depth() int {
-	if p.Parent == nil {
-		return 0
+	n := 0
+	for pp := p.Parent; pp != nil; pp = pp.Parent {
+		n++
 	}
-
-	return p.Parent.depth() + 1
+	return n
 }
 
 // cleanName returns a cleaned version of the Pkg name used for resolving dependencies.
@@ -152,13 +185,10 @@ func (p *Pkg) cleanName() string {
 
 // String returns a string representation of the Pkg containing the Pkg name and status.
 func (p *Pkg) String() string {
-	b := bytes.NewBufferString(p.Name)
-
-	if !p.Resolved {
-		b.Write([]byte(" (unresolved)"))
+	if p.Resolved {
+		return p.Name
 	}
-
-	return b.String()
+	return p.Name + " (unresolved)"
 }
 
 // byInternalAndName ensures a slice of Pkgs are sorted such that the internal stdlib

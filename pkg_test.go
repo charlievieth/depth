@@ -62,10 +62,10 @@ func TestPkg_AddDepImportSeen(t *testing.T) {
 
 func TestByInternalAndName(t *testing.T) {
 	pkgs := []Pkg{
-		Pkg{Internal: true, Name: "net/http"},
-		Pkg{Internal: false, Name: "github.com/KyleBanks/depth"},
-		Pkg{Internal: true, Name: "strings"},
-		Pkg{Internal: false, Name: "github.com/KyleBanks/commuter"},
+		{Internal: true, Name: "net/http"},
+		{Internal: false, Name: "github.com/KyleBanks/depth"},
+		{Internal: true, Name: "strings"},
+		{Internal: false, Name: "github.com/KyleBanks/commuter"},
 	}
 	expected := []string{"net/http", "strings", "github.com/KyleBanks/commuter", "github.com/KyleBanks/depth"}
 
