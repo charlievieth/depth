@@ -90,9 +90,9 @@ func Example_handlePkgsTestStrings() {
 func Example_handlePkgsDepth() {
 	var t depth.Tree
 
-	handlePkgs(&t, []string{"github.com/KyleBanks/depth/cmd/depth"}, false, "")
+	handlePkgs(&t, []string{"github.com/KyleBanks/depth/cmd/godepth"}, false, "")
 	// Output:
-	// github.com/KyleBanks/depth/cmd/depth
+	// github.com/KyleBanks/depth/cmd/godepth
 	//   ├ encoding/json
 	//   ├ flag
 	//   ├ fmt
@@ -177,8 +177,8 @@ func Example_handlePkgsJson() {
 func Example_handlePkgsExplain() {
 	var t depth.Tree
 
-	handlePkgs(&t, []string{"github.com/KyleBanks/depth/cmd/depth"}, false, "strings")
+	handlePkgs(&t, []string{"github.com/KyleBanks/depth/cmd/godepth"}, false, "strings")
 	// Output:
-	// github.com/KyleBanks/depth/cmd/depth -> strings
-	// github.com/KyleBanks/depth/cmd/depth -> github.com/KyleBanks/depth -> strings
+	// github.com/KyleBanks/depth/cmd/godepth -> strings
+	// github.com/KyleBanks/depth/cmd/godepth -> github.com/KyleBanks/depth -> strings
 }
